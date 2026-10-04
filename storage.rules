@@ -1,0 +1,60 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      return isSignedIn() ? request.auth.token.role : null;
+    }
+
+    function isAdmin() {
+      return role() == 'admin';
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidImage() {
+      return request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Avatars: owner read/write, everyone else can view (avatars are not
+    // sensitive), size/type constrained.
+    match /avatars/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isValidImage();
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // Resource attachments (articles, PDFs, audio) - admin managed, readable
+    // by any signed-in user (resources are curated content, not user data).
+    match /resources/{resourceId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Chat attachments - private to the session owner only.
+    match /chatUploads/{userId}/{sessionId}/{fileName} {
+      allow read, write: if isOwner(userId) &&
+        request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // Consultation attachments (e.g. documents shared with a professional)
+    // are written only by Cloud Functions after authorization checks.
+    match /consultations/{consultationId}/{fileName} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // Deny everything else by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,227 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function role() {
+      // Role is set as a custom claim by the backend (auth/setUserRole.ts).
+      // Never trust a role field stored on a client-writable document.
+      return isSignedIn() ? request.auth.token.role : null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && role() == 'admin';
+    }
+
+    function isProfessional() {
+      return isSignedIn() && role() == 'professional';
+    }
+
+    function isStudent() {
+      return isSignedIn() && role() == 'student';
+    }
+
+    function isNgo() {
+      return isSignedIn() && role() == 'ngo';
+    }
+
+    function isOwner(resourceUserId) {
+      return isSignedIn() && uid() == resourceUserId;
+    }
+
+    // Default: deny everything not explicitly allowed below.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // users/{uid} - core account record (mirrors Firebase Auth)
+    // Created only by the onUserCreate auth trigger (Admin SDK, bypasses rules).
+    // ---------------------------------------------------------------------
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow write: if false; // all writes go through Cloud Functions
+    }
+
+    // ---------------------------------------------------------------------
+    // profiles/{uid} - private profile data
+    // Created by the onUserCreate trigger. Owner may update a safe allow-list
+    // of fields directly; anything else (role, verification flags) goes
+    // through Cloud Functions.
+    // ---------------------------------------------------------------------
+    match /profiles/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if false;
+      allow update: if isOwner(userId) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['displayName', 'bio', 'avatarUrl', 'preferences', 'updatedAt']);
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // checkIns/{id} - simple owned CRUD, safe for direct SDK access
+    // ---------------------------------------------------------------------
+    match /checkIns/{checkInId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isOwner(request.resource.data.userId) &&
+        request.resource.data.keys().hasAll(['userId', 'mood', 'createdAt']);
+      allow update, delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // ---------------------------------------------------------------------
+    // reflections/{id} - private, immutable once created (create + delete only)
+    // ---------------------------------------------------------------------
+    match /reflections/{reflectionId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isOwner(request.resource.data.userId) &&
+        request.resource.data.keys().hasAll(['userId', 'content', 'createdAt']);
+      allow update: if false;
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // ---------------------------------------------------------------------
+    // selfHelpPlans/{id} and nested selfHelpTasks
+    // ---------------------------------------------------------------------
+    match /selfHelpPlans/{planId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isOwner(request.resource.data.userId);
+      allow update, delete: if isOwner(resource.data.userId) || isAdmin();
+
+      match /selfHelpTasks/{taskId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/selfHelpPlans/$(planId)).data.userId) || isAdmin();
+        allow create, update, delete: if isOwner(get(/databases/$(database)/documents/selfHelpPlans/$(planId)).data.userId) || isAdmin();
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // resources/{id} - public reading of published content, admin-only writes
+    // ---------------------------------------------------------------------
+    match /resources/{resourceId} {
+      allow get, list: if isSignedIn() && (resource.data.published == true || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------------
+    // chatSessions/{id} and nested chatMessages
+    // Owner can create the session and post user messages directly.
+    // Assistant/system messages are only ever written by Cloud Functions
+    // (Admin SDK), never by a client.
+    // ---------------------------------------------------------------------
+    match /chatSessions/{sessionId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'updatedAt']);
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+
+      match /chatMessages/{messageId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId) || isAdmin();
+        allow create: if isOwner(get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId) &&
+          request.resource.data.senderType == 'user';
+        allow update, delete: if false;
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // consultationRequests/{id} - workflow is state-machine controlled.
+    // Client may create the initial SUBMITTED request only.
+    // All status transitions happen in Cloud Functions using the Admin SDK,
+    // which bypasses these rules entirely - so "update" is denied here.
+    // ---------------------------------------------------------------------
+    match /consultationRequests/{requestId} {
+      allow read: if isOwner(resource.data.studentId)
+        || (isProfessional() && resource.data.professionalId == uid())
+        || isAdmin();
+      allow create: if isStudent() &&
+        request.resource.data.studentId == uid() &&
+        request.resource.data.status == 'SUBMITTED';
+      allow update, delete: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // consultations/{id} and consultationOutcomes/{id} - Cloud Function only
+    // ---------------------------------------------------------------------
+    match /consultations/{consultationId} {
+      allow read: if isOwner(resource.data.studentId)
+        || (isProfessional() && resource.data.professionalId == uid())
+        || isAdmin();
+      allow write: if false;
+    }
+
+    match /consultationOutcomes/{outcomeId} {
+      allow read: if isOwner(resource.data.studentId)
+        || (isProfessional() && resource.data.professionalId == uid())
+        || isAdmin();
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // professionals/{uid} - public-ish directory profile
+    // ---------------------------------------------------------------------
+    match /professionals/{profId} {
+      allow get, list: if isSignedIn();
+      allow update: if isOwner(profId) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['bio', 'specialties', 'availability', 'updatedAt']);
+      allow update: if isAdmin();
+      allow create, delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------------
+    // professionalReviews/{id} - created only via Cloud Function
+    // (needs to validate the consultation actually completed)
+    // ---------------------------------------------------------------------
+    match /professionalReviews/{reviewId} {
+      allow read: if isAdmin()
+        || (isProfessional() && resource.data.professionalId == uid())
+        || isOwner(resource.data.studentId);
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // notifications/{id} - created by Cloud Functions; owner may mark read
+    // ---------------------------------------------------------------------
+    match /notifications/{notificationId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow update: if isOwner(resource.data.userId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+      allow create, delete: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // sponsors/{id} & sponsorshipAllocations/{id}
+    // Raw allocation data is never read directly by NGOs/sponsors - they get
+    // aggregate figures only via a callable Cloud Function. Admin can read
+    // the raw collections for operational purposes.
+    // ---------------------------------------------------------------------
+    match /sponsors/{sponsorId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /sponsorshipAllocations/{allocationId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------------
+    // auditLogs/{id} - admin read-only, written only via Admin SDK
+    // ---------------------------------------------------------------------
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+  }
+}

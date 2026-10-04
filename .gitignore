@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+functions/lib/
+functions/*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+functions/.env
+functions/.env.*
+!functions/.env.example
+*.pem
+*.key
+serviceAccountKey.json
+scripts/serviceAccountKey.json
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+pubsub-debug.log
+.runtimeconfig.json
+
+# Emulator data
+emulator-data/
+
+# OS / editor
+.DS_Store
+.vscode/
+*.swp
+
+# Logs
+npm-debug.log*
