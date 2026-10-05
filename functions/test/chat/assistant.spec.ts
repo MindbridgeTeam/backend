@@ -9,10 +9,13 @@ import {
 describe("chat assistant intent and prompt handling", () => {
   it("prioritizes crisis detection over other intents", () => {
     expect(detectIntent("I feel anxious and want to end my life")).to.equal("CRISIS");
+    expect(detectIntent("I can't keep myself safe tonight")).to.equal("CRISIS");
+    expect(detectIntent("I wish I were dead")).to.equal("CRISIS");
   });
 
   it("detects the supported non-crisis intents", () => {
     expect(detectIntent("I want to start exercising")).to.equal("GOAL_SETTING");
+    expect(detectIntent("I want to stop my plan")).to.equal("PLAN_MANAGEMENT");
     expect(detectIntent("Can you recommend a video about stress?")).to.equal("RESOURCE_REQUEST");
     expect(detectIntent("I feel overwhelmed about exams")).to.equal("EMOTIONAL_SUPPORT");
   });

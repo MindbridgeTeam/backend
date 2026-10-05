@@ -19,11 +19,10 @@ export const AI_API_BASE_URL = defineString("AI_API_BASE_URL", {
   default: "https://api.anthropic.com",
 });
 
-// NOTE: set this to a model your Anthropic account actually has access to.
-// The default below is a known-valid model id; override with
-//   firebase functions:config / the AI_MODEL param, or in .env for emulators.
+// Set this to a model your Anthropic account has access to. Keep it aligned
+// with functions/.env.example so local and deployed defaults match.
 export const AI_MODEL = defineString("AI_MODEL", {
-  default: "claude-3-5-sonnet-20241022",
+  default: "claude-sonnet-4-6",
 });
 
 export const DEFAULT_USER_ROLE = defineString("DEFAULT_USER_ROLE", {

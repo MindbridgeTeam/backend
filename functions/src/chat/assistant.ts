@@ -8,35 +8,36 @@ export type AssistantIntent =
   | "REFLECTION"
   | "GENERAL_CHAT";
 
-const CRISIS_PHRASES = [
-  "kill myself",
-  "suicide",
-  "want to die",
-  "end my life",
-  "self harm",
-  "self-harm",
-  "cut myself",
-  "hurt myself",
-  "harm myself",
+const CRISIS_PATTERNS = [
+  /\b(?:suicidal|suicide)\b/,
+  /\b(?:kill|hurt|harm|cut)\s+myself\b/,
+  /\bself[- ]harm(?:ing)?\b/,
+  /\b(?:want|plan|intend|trying)\s+to\s+(?:die|kill myself|end my life|take my life)\b/,
+  /\b(?:thinking|thoughts?)\s+(?:about|of)\s+(?:suicide|dying|being dead)\b/,
+  /\b(?:i\s+)?(?:wish|hope)\s+i\s+(?:were|was)\s+dead\b/,
+  /\b(?:end|take)\s+my\s+(?:own\s+)?life\b/,
+  /\bend it all\b/,
+  /\b(?:can't|cannot|don't think i can)\s+(?:keep myself|stay)\s+safe\b/,
+  /\b(?:don't|do not)\s+want\s+to\s+(?:live|be here)\b/,
 ];
 
 export const SAFETY_RESPONSE =
-  "Thank you for sharing this. Your safety matters. If you may act on these thoughts or are in immediate danger, call 112 in Nigeria or go to the nearest emergency service, and tell someone you trust who can stay with you. Your supplied resource library lists Lagos Lifeline at 070 0000 6463 or 020 1410 6463; its availability may depend on your location. You do not have to handle this alone.";
+  "Thank you for sharing this. Your safety matters. If you may act on these thoughts or are in immediate danger, call 112 in Nigeria or go to the nearest emergency service, and tell someone you trust who can stay with you. Lagos MiND lists support at 070 0000 6463 or 020 1410 6463, and WhatsApp at 090 9000 6463. You do not have to handle this alone.";
 
 export function isCrisis(message: string): boolean {
-  const normalized = message.toLowerCase().replace(/[’']/g, "'");
-  return CRISIS_PHRASES.some((phrase) => normalized.includes(phrase));
+  const normalized = message.toLowerCase().replace(/[’']/g, "'").replace(/\s+/g, " ");
+  return CRISIS_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 export function detectIntent(message: string): AssistantIntent {
   const normalized = message.toLowerCase();
 
   if (isCrisis(normalized)) return "CRISIS";
-  if (["goal", "want to start", "i want to", "plan to"].some((word) => normalized.includes(word))) {
-    return "GOAL_SETTING";
-  }
   if (["my plan", "change my plan", "stop plan", "update plan"].some((word) => normalized.includes(word))) {
     return "PLAN_MANAGEMENT";
+  }
+  if (["goal", "want to start", "i want to", "plan to"].some((word) => normalized.includes(word))) {
+    return "GOAL_SETTING";
   }
   if (["check in", "checking in", "i did", "completed", "i finished"].some((word) => normalized.includes(word))) {
     return "CHECKIN";
