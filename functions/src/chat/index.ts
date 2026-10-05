@@ -11,9 +11,9 @@ import {
 } from "../validation/schemas";
 import { ok } from "../utils/response";
 import { FieldValue } from "firebase-admin/firestore";
-import { AI_API_KEY, AI_API_BASE_URL, AI_MODEL, CHAT_RATE_LIMIT_PER_MINUTE } from "../config/env";
+import { CHAT_RATE_LIMIT_PER_MINUTE } from "../config/env";
 import { logger } from "../utils/logger";
-import { buildSystemPrompt, detectIntent, SAFETY_RESPONSE } from "./assistant";
+import { detectIntent, generateResponse } from "./assistant";
 
 export const createConversation = onCall(async (request) => {
   return withErrorHandling("createConversation", async () => {
@@ -138,13 +138,10 @@ async function loadLatestCheckIn(uid: string): Promise<string> {
 }
 
 /**
- * Fetches recent message history for context, then calls the AI provider
- * server-side (the API key never leaves this function), and persists both
- * the user's message and the assistant's reply.
+ * Uses the local intent and response templates, then persists both the
+ * user's message and the assistant's reply. No external AI provider is called.
  */
-export const sendMessage = onCall(
-  { secrets: [AI_API_KEY] },
-  async (request) => {
+export const sendMessage = onCall(async (request) => {
     return withErrorHandling("sendMessage", async () => {
       requireAppCheck(request);
       const ctx = requireAuth(request);
@@ -169,7 +166,7 @@ export const sendMessage = onCall(
         createdAt: now,
       });
 
-      // Pull recent context (last 20 messages) to send to the model.
+      // Pull recent context for the local response template.
       const historySnap = await messagesRef.orderBy("createdAt", "desc").limit(20).get();
       const history = historySnap.docs
         .map((d) => d.data())
@@ -182,22 +179,26 @@ export const sendMessage = onCall(
       const intent = detectIntent(content);
       let assistantText: string;
       try {
-        if (intent === "CRISIS") {
-          assistantText = SAFETY_RESPONSE;
-        } else {
-          const library =
-            intent === "RESOURCE_REQUEST" || intent === "GOAL_SETTING"
-              ? await findRelevantResources(content)
-              : "";
-          const [activePlan, checkin] = await Promise.all([
-            intent === "PLAN_MANAGEMENT" ? loadActivePlan(ctx.uid) : Promise.resolve(undefined),
-            intent === "CHECKIN" ? loadLatestCheckIn(ctx.uid) : Promise.resolve(undefined),
-          ]);
-          assistantText = await callAiProvider(
-            history,
-            buildSystemPrompt({ intent, library, activePlan, checkin })
-          );
-        }
+        const libraryResult =
+          intent === "RESOURCE_REQUEST" || intent === "GOAL_SETTING"
+            ? await findRelevantResources(content)
+            : "No resources";
+        const [activePlan, checkin] = await Promise.all([
+          intent === "PLAN_MANAGEMENT" ? loadActivePlan(ctx.uid) : Promise.resolve("No active plan"),
+          intent === "CHECKIN" ? loadLatestCheckIn(ctx.uid) : Promise.resolve(""),
+        ]);
+        const context = history
+          .slice(0, -1)
+          .slice(-6)
+          .map((message) => `${message.role}: ${message.content}`)
+          .join("\n");
+        assistantText = generateResponse(
+          content,
+          context,
+          activePlan,
+          libraryResult || "No resources",
+          checkin
+        );
       } catch (err) {
         logger.error("Chat response generation failed", {
           actorId: ctx.uid,
@@ -224,40 +225,6 @@ export const sendMessage = onCall(
     });
   }
 );
-
-async function callAiProvider(
-  history: Array<{ role: string; content: string }>,
-  systemPrompt: string
-): Promise<string> {
-  const response = await fetch(`${AI_API_BASE_URL.value()}/v1/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": AI_API_KEY.value(),
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: AI_MODEL.value(),
-      max_tokens: 1000,
-      system: systemPrompt,
-      messages: history,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`AI provider returned status ${response.status}`);
-  }
-
-  const data = (await response.json()) as {
-    content: Array<{ type: string; text?: string }>;
-  };
-
-  const text = data.content.find((block) => block.type === "text")?.text;
-  if (!text) {
-    throw new Error("AI provider returned no text content.");
-  }
-  return text;
-}
 
 export const getConversation = onCall(async (request) => {
   return withErrorHandling("getConversation", async () => {

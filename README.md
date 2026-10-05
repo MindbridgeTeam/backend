@@ -44,12 +44,12 @@ Frontend (web/mobile)
    └── Callable Cloud Functions ───► Cloud Functions ───────┘
                                         │        │
                                         │        └──► Firebase Storage
-                                        ├──► AI provider (server-side only)
+                                        ├──► Local intent and response templates
                                         └──► Cloud Messaging (push)
 ```
 
 Design principle: **the frontend is never trusted**. Every sensitive
-operation - role changes, consultation status transitions, AI calls, audit
+operation - role changes, consultation status transitions, chat responses, audit
 logging, sponsorship data - is enforced inside a Cloud Function running with
 the Admin SDK, or denied outright at the Firestore Security Rules layer.
 
@@ -116,16 +116,9 @@ Non-secret config uses `firebase-functions/params` (`defineString`,
 `defineInt`) with local defaults readable from `functions/.env` (copy
 `.env.example` to `.env` for emulator use - **never commit `.env`**).
 
-Secrets (`defineSecret`) are stored in Google Secret Manager and injected
-only into the functions that declare them:
-
-```bash
-firebase functions:secrets:set AI_API_KEY
-```
-
-Never put API keys in `.env`, in Firestore, or in any document a client can
-read. The `AI_API_KEY` is only ever read inside `chat/index.ts`'s
-`sendMessage` function, on the server.
+Chat uses the local TypeScript intent rules and response templates in
+`functions/src/chat/assistant.ts`. It does not call an external AI provider
+and does not require an AI API key.
 
 ## Authentication
 
@@ -360,11 +353,8 @@ firebase deploy --only firestore:rules,firestore:indexes
 firebase deploy --only storage
 ```
 
-Set secrets in each target project before deploying:
 ```bash
-firebase use prod
-firebase functions:secrets:set AI_API_KEY
-firebase deploy
+firebase deploy --project mindbridge-be753
 ```
 
 No credentials are ever committed to Git - see `.gitignore`.
@@ -375,7 +365,7 @@ No credentials are ever committed to Git - see `.gitignore`.
       Storage, and callable functions once client integration is verified.
 - [ ] `APP_ENV=production` set so `requireAppCheck` hard-fails unverified
       callers.
-- [ ] Secrets set via `firebase functions:secrets:set`, not `.env`.
+- [ ] Confirm no external AI provider or AI API key is configured for chat.
 - [ ] Firestore rules deployed and re-tested against the emulator after any
       schema change.
 - [ ] Rate limits reviewed for production traffic
