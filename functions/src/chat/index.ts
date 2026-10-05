@@ -92,6 +92,51 @@ async function findRelevantResources(message: string): Promise<string> {
   }
 }
 
+async function loadActivePlan(uid: string): Promise<string> {
+  const snapshot = await db
+    .collection(COLLECTIONS.selfHelpPlans)
+    .where("userId", "==", uid)
+    .where("status", "==", "active")
+    .orderBy("createdAt", "desc")
+    .limit(1)
+    .get();
+  if (snapshot.empty) return "No active plan.";
+
+  const plan = snapshot.docs[0];
+  const taskSnapshot = await plan.ref
+    .collection(COLLECTIONS.selfHelpTasks)
+    .where("completed", "==", false)
+    .limit(20)
+    .get();
+
+  return JSON.stringify({
+    title: plan.get("title"),
+    description: plan.get("description"),
+    tasks: taskSnapshot.docs.map((task) => ({
+      title: task.get("title"),
+      dueDate: task.get("dueDate")?.toDate?.().toISOString() ?? null,
+    })),
+  });
+}
+
+async function loadLatestCheckIn(uid: string): Promise<string> {
+  const snapshot = await db
+    .collection(COLLECTIONS.checkIns)
+    .where("userId", "==", uid)
+    .orderBy("createdAt", "desc")
+    .limit(1)
+    .get();
+  if (snapshot.empty) return "No previous check-in.";
+
+  const checkIn = snapshot.docs[0];
+  return JSON.stringify({
+    mood: checkIn.get("mood"),
+    notes: checkIn.get("notes"),
+    tags: checkIn.get("tags"),
+    createdAt: checkIn.get("createdAt")?.toDate?.().toISOString() ?? null,
+  });
+}
+
 /**
  * Fetches recent message history for context, then calls the AI provider
  * server-side (the API key never leaves this function), and persists both
@@ -144,15 +189,19 @@ export const sendMessage = onCall(
             intent === "RESOURCE_REQUEST" || intent === "GOAL_SETTING"
               ? await findRelevantResources(content)
               : "";
+          const [activePlan, checkin] = await Promise.all([
+            intent === "PLAN_MANAGEMENT" ? loadActivePlan(ctx.uid) : Promise.resolve(undefined),
+            intent === "CHECKIN" ? loadLatestCheckIn(ctx.uid) : Promise.resolve(undefined),
+          ]);
           assistantText = await callAiProvider(
             history,
-            buildSystemPrompt({ intent, library })
+            buildSystemPrompt({ intent, library, activePlan, checkin })
           );
         }
       } catch (err) {
-        logger.error("AI provider call failed", {
+        logger.error("Chat response generation failed", {
           actorId: ctx.uid,
-          action: "chat.ai_call_failed",
+          action: "chat.response_generation_failed",
           error: err instanceof Error ? err.message : String(err),
         });
         throw Errors.internal("The assistant is temporarily unavailable. Please try again.");

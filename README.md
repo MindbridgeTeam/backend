@@ -330,6 +330,28 @@ Required scenarios covered:
 
 ## Deployment
 
+## Resource catalog import
+
+`scripts/data/resources.json` is the single versioned resource catalog. Preview
+the import without connecting to Firestore:
+
+```bash
+node scripts/importResources.js --project=mindbridge-be753
+```
+
+To write the catalog, provide Firebase Admin credentials through
+`GOOGLE_APPLICATION_CREDENTIALS` or the gitignored
+`scripts/serviceAccountKey.json`, review the catalog, then explicitly run:
+
+```bash
+node scripts/importResources.js --project=mindbridge-be753 --apply
+```
+
+The importer uses catalog IDs as Firestore document IDs, publishes those
+documents, preserves their original `createdAt`, updates their catalog fields,
+and never deletes other documents. Re-importing updates matching IDs from the
+versioned catalog. Resource imports are separate from deploying Functions.
+
 ```bash
 cd backend
 firebase deploy               # deploys functions, firestore rules/indexes, storage rules
