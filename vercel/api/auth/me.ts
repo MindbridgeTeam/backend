@@ -1,32 +1,22 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '../../src/lib/supabase';
+import { getAuthenticatedUser } from '../../src/lib/auth';
 import { apiResponse } from '../../src/lib/response';
+import { supabase } from '../../src/lib/supabase';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json(apiResponse(false, null, 'Method not allowed'));
   }
 
-  const authHeader = req.headers.authorization ?? '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-
-  if (!token) {
-    return res.status(401).json(apiResponse(false, null, 'Missing bearer token'));
-  }
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser(token);
-
-  if (error || !user) {
-    return res.status(401).json(apiResponse(false, null, 'Invalid session'));
+  const user = await getAuthenticatedUser(req);
+  if (!user) {
+    return res.status(401).json(apiResponse(false, null, 'Invalid Firebase session'));
   }
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('*')
-    .eq('uid', user.id)
+    .eq('uid', user.uid)
     .maybeSingle();
 
   if (profileError) {
@@ -35,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   return res.status(200).json(
     apiResponse(true, {
-      uid: user.id,
+      uid: user.uid,
       email: user.email,
       profile,
     })
