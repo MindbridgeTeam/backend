@@ -13,6 +13,7 @@ import { ok } from "../utils/response";
 import { FieldValue } from "firebase-admin/firestore";
 import { AI_API_KEY, AI_API_BASE_URL, AI_MODEL, CHAT_RATE_LIMIT_PER_MINUTE } from "../config/env";
 import { logger } from "../utils/logger";
+import { buildSystemPrompt, detectIntent, SAFETY_RESPONSE } from "./assistant";
 
 export const createConversation = onCall(async (request) => {
   return withErrorHandling("createConversation", async () => {
@@ -39,6 +40,56 @@ async function loadOwnedSession(ctx: { uid: string; role: string }, sessionId: s
   if (!snap.exists) throw Errors.notFound("Conversation not found.");
   requireOwnerOrRole(ctx as never, snap.data()!.userId, ["admin"]);
   return { ref, snap };
+}
+
+async function findRelevantResources(message: string): Promise<string> {
+  try {
+    const snapshot = await db
+      .collection(COLLECTIONS.resources)
+      .where("published", "==", true)
+      .limit(100)
+      .get();
+    const terms = [...new Set(message.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])];
+    const resources = snapshot.docs
+      .map((doc) => {
+        const data = doc.data();
+        const searchable = [
+          data.title,
+          data.category,
+          data.description,
+          data.content,
+          data.context,
+          ...(Array.isArray(data.tags) ? data.tags : []),
+        ]
+          .filter((value) => typeof value === "string")
+          .join(" ")
+          .toLowerCase();
+        return { data, score: terms.filter((term) => searchable.includes(term)).length };
+      })
+      .filter((resource) => resource.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 3);
+
+    return resources
+      .map(({ data }) =>
+        [
+          `Title: ${data.title ?? "Untitled"}`,
+          `Category: ${data.category ?? "Uncategorized"}`,
+          `URL: ${data.url ?? "Not provided"}`,
+          `Details: ${data.context ?? data.description ?? data.content ?? ""}`,
+          data.time ? `Reading time: ${data.time}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      )
+      .join("\n\n");
+  } catch (err) {
+    logger.warn("Published resource lookup failed", {
+      action: "chat.resource_lookup_failed",
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return "";
+  }
 }
 
 /**
@@ -83,9 +134,21 @@ export const sendMessage = onCall(
           content: m.content as string,
         }));
 
+      const intent = detectIntent(content);
       let assistantText: string;
       try {
-        assistantText = await callAiProvider(history);
+        if (intent === "CRISIS") {
+          assistantText = SAFETY_RESPONSE;
+        } else {
+          const library =
+            intent === "RESOURCE_REQUEST" || intent === "GOAL_SETTING"
+              ? await findRelevantResources(content)
+              : "";
+          assistantText = await callAiProvider(
+            history,
+            buildSystemPrompt({ intent, library })
+          );
+        }
       } catch (err) {
         logger.error("AI provider call failed", {
           actorId: ctx.uid,
@@ -114,7 +177,8 @@ export const sendMessage = onCall(
 );
 
 async function callAiProvider(
-  history: Array<{ role: string; content: string }>
+  history: Array<{ role: string; content: string }>,
+  systemPrompt: string
 ): Promise<string> {
   const response = await fetch(`${AI_API_BASE_URL.value()}/v1/messages`, {
     method: "POST",
@@ -126,6 +190,7 @@ async function callAiProvider(
     body: JSON.stringify({
       model: AI_MODEL.value(),
       max_tokens: 1000,
+      system: systemPrompt,
       messages: history,
     }),
   });
