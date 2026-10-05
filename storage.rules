@@ -41,7 +41,8 @@ service firebase.storage {
 
     // Chat attachments - private to the session owner only.
     match /chatUploads/{userId}/{sessionId}/{fileName} {
-      allow read, write: if isOwner(userId) &&
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId) &&
         request.resource.size < 10 * 1024 * 1024;
     }
 

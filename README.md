@@ -243,13 +243,33 @@ chatSessions/{sessionId}                 (owner: userId)
    └── chatMessages/{messageId}          (senderType: user | assistant | system)
 ```
 
-`sendMessage`: writes the user's message, loads the last 20 messages as
-context, calls the AI provider **server-side only** (the API key is a Cloud
-Functions secret, never sent to the client), then writes the assistant's
-reply. Clients can create `senderType: "user"` messages directly (rules
-allow it) but can never write an `assistant` message themselves. Chat is
-rate-limited per user per minute (`CHAT_RATE_LIMIT_PER_MINUTE`) and, in
-production, requires a valid App Check token.
+`sendMessage` takes `{ sessionId, content }` (`content` is limited to 4,000
+characters), writes the user's message, loads recent context, runs the local
+intent/template code in `functions/src/chat/assistant.ts`, then writes and
+returns the assistant message. It does not call an external model. The current
+templates are instructions, so the returned text is not model-generated prose;
+the AI developer must provide an inference implementation if generated replies
+are required. The original Python files in `assistant-python-reference/` are
+not executed by Firebase. Clients can create `senderType: "user"` messages
+directly but cannot write assistant messages. Chat is rate-limited and requires
+Firebase Auth plus App Check in production.
+
+### Frontend and AI integration contract
+
+- Project: `mindbridge-be753`; Functions region: `us-central1`; runtime: Node.js 20.
+- `createConversation({ title? })` returns the created session in the standard
+  `{ success, data, error }` envelope.
+- `sendMessage({ sessionId, content })` returns `{ success, data, error }`,
+  where `data` is the assistant message with `id`, `sessionId`, `senderType`,
+  `content`, and `createdAt`.
+- `getConversation({ sessionId, pageSize?, cursor? })` returns the session,
+  messages, and `nextCursor` in the same envelope.
+- All three require a signed-in Firebase user. `sendMessage` also requires a
+  valid App Check token in production. The frontend must initialize Firebase
+  App Check before calling it.
+- Chat output currently comes from deterministic templates. Do not have the
+  frontend or AI service assume an external model is called until an inference
+  implementation and its request/response contract are agreed.
 
 ## Notifications
 
@@ -323,6 +343,13 @@ Required scenarios covered:
 
 ## Deployment
 
+Before deploying to production, confirm that the Firestore API is enabled,
+the frontend Firebase app is registered, and the Storage trigger resolves to
+the exact bucket shown in Firebase Console. The trigger fails closed if neither
+`FIREBASE_STORAGE_BUCKET` nor `storageBucket` in `FIREBASE_CONFIG` is set; it
+will not fall back to a demo bucket. Compare the proposed Firestore and Storage
+rules with the rules currently deployed before replacing them.
+
 ## Resource catalog import
 
 `scripts/data/resources.json` is the single versioned resource catalog. Preview
@@ -346,14 +373,6 @@ and never deletes other documents. Re-importing updates matching IDs from the
 versioned catalog. Resource imports are separate from deploying Functions.
 
 ```bash
-cd backend
-firebase deploy               # deploys functions, firestore rules/indexes, storage rules
-firebase deploy --only functions
-firebase deploy --only firestore:rules,firestore:indexes
-firebase deploy --only storage
-```
-
-```bash
 firebase deploy --project mindbridge-be753
 ```
 
@@ -363,8 +382,8 @@ No credentials are ever committed to Git - see `.gitignore`.
 
 - [ ] App Check enforced (Console → App Check → Enforce) for Firestore,
       Storage, and callable functions once client integration is verified.
-- [ ] `APP_ENV=production` set so `requireAppCheck` hard-fails unverified
-      callers.
+- [ ] `APP_ENV` is production (the Functions default) so `requireAppCheck`
+  hard-fails unverified callers; local `.env` may explicitly use development.
 - [ ] Confirm no external AI provider or AI API key is configured for chat.
 - [ ] Firestore rules deployed and re-tested against the emulator after any
       schema change.

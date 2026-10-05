@@ -4,12 +4,16 @@ import { FieldValue } from "firebase-admin/firestore";
 import { logger } from "../utils/logger";
 
 const resolveStorageBucket = (): string => {
-  const projectId = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID;
-  if (projectId) {
-    return `${projectId}.appspot.com`;
+  const firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG ?? "{}") as {
+    storageBucket?: string;
+  };
+  const bucket = process.env.FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket;
+  if (!bucket) {
+    throw new Error(
+      "Storage trigger requires FIREBASE_STORAGE_BUCKET or storageBucket in FIREBASE_CONFIG."
+    );
   }
-
-  return "demo-test.appspot.com";
+  return bucket;
 };
 
 /**
@@ -27,25 +31,25 @@ export const onAvatarUploaded = onObjectFinalized(
   { bucket: resolveStorageBucket() },
   async (event) => {
     const filePath = event.data.name; // e.g. "avatars/{uid}/{fileName}"
-  const match = /^avatars\/([^/]+)\/(.+)$/.exec(filePath ?? "");
-  if (!match) return; // not an avatar upload, ignore
+    const match = /^avatars\/([^/]+)\/(.+)$/.exec(filePath ?? "");
+    if (!match) return; // not an avatar upload, ignore
 
-  const [, userId] = match;
+    const [, userId] = match;
 
-  const profileRef = db.collection(COLLECTIONS.profiles).doc(userId);
-  const profileSnap = await profileRef.get();
-  if (!profileSnap.exists) {
-    logger.warn("Avatar uploaded for a user with no profile doc", {
-      actorId: userId,
-      action: "avatar.orphaned_upload",
+    const profileRef = db.collection(COLLECTIONS.profiles).doc(userId);
+    const profileSnap = await profileRef.get();
+    if (!profileSnap.exists) {
+      logger.warn("Avatar uploaded for a user with no profile doc", {
+        actorId: userId,
+        action: "avatar.orphaned_upload",
+      });
+      return;
+    }
+
+    await profileRef.update({
+      avatarUrl: filePath,
+      updatedAt: FieldValue.serverTimestamp(),
     });
-    return;
-  }
-
-  await profileRef.update({
-    avatarUrl: filePath,
-    updatedAt: FieldValue.serverTimestamp(),
-  });
 
     logger.info("Linked uploaded avatar to profile", {
       actorId: userId,
@@ -62,12 +66,12 @@ export const onAvatarDeleted = onObjectDeleted(
   { bucket: resolveStorageBucket() },
   async (event) => {
     const filePath = event.data.name;
-  const match = /^avatars\/([^/]+)\/(.+)$/.exec(filePath ?? "");
-  if (!match) return;
+    const match = /^avatars\/([^/]+)\/(.+)$/.exec(filePath ?? "");
+    if (!match) return;
 
-  const [, userId] = match;
-  const profileRef = db.collection(COLLECTIONS.profiles).doc(userId);
-  const profileSnap = await profileRef.get();
+    const [, userId] = match;
+    const profileRef = db.collection(COLLECTIONS.profiles).doc(userId);
+    const profileSnap = await profileRef.get();
     if (profileSnap.exists && profileSnap.data()?.avatarUrl === filePath) {
       await profileRef.update({ avatarUrl: null, updatedAt: FieldValue.serverTimestamp() });
     }

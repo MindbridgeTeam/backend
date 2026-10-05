@@ -18,6 +18,6 @@ export const CONSULTATION_RATE_LIMIT_PER_DAY = defineInt(
   { default: 5 }
 );
 
-export const APP_ENV = defineString("APP_ENV", { default: "development" });
+export const APP_ENV = defineString("APP_ENV", { default: "production" });
 
 export const isProduction = (): boolean => APP_ENV.value() === "production";
