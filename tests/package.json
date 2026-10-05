@@ -1,0 +1,22 @@
+{
+  "name": "backend-tests",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "mocha --require ts-node/register --timeout 20000 '**/*.spec.ts'",
+    "test:emulator": "firebase emulators:exec --only firestore,auth 'npm test' --project demo-test"
+  },
+  "dependencies": {
+    "firebase": "^10.12.2"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.7",
+    "@types/node": "^20.14.0",
+    "chai": "^4.4.1",
+    "mocha": "^10.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "functions",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "lint": "eslint --ext .ts src",
+    "serve": "npm run build && firebase emulators:start --only functions,firestore,auth,storage",
+    "shell": "npm run build && firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log",
+    "test": "mocha --require ts-node/register --timeout 20000 'test/**/*.spec.ts' --exclude 'test/integration/**'",
+    "test:integration": "firebase emulators:exec --only firestore,auth --project demo-test \"mocha --require ts-node/register --timeout 30000 'test/integration/**/*.spec.ts'\""
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^5.1.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.7",
+    "@types/node": "^20.14.0",
+    "@typescript-eslint/eslint-plugin": "^7.13.0",
+    "@typescript-eslint/parser": "^7.13.0",
+    "chai": "^4.4.1",
+    "eslint": "^8.57.0",
+    "firebase-functions-test": "^3.3.0",
+    "mocha": "^10.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
