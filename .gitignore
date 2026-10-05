@@ -4,6 +4,8 @@ node_modules/
 # Build output
 functions/lib/
 functions/*.tsbuildinfo
+.next/
+*.tsbuildinfo
 
 # Environment / secrets
 .env
