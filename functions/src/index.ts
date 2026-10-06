@@ -16,7 +16,6 @@ export { setUserRole } from "./auth/callable";
 
 // --- Users ---------------------------------------------------------------
 export { getProfile, updateProfile } from "./users";
-export { onAvatarUploaded, onAvatarDeleted } from "./users/storageTriggers";
 
 // --- Check-ins -----------------------------------------------------------
 export { createCheckIn, getMyCheckIns, getCheckInTrends } from "./checkins";

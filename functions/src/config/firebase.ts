@@ -1,7 +1,6 @@
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
-import { getStorage } from "firebase-admin/storage";
 import { getMessaging } from "firebase-admin/messaging";
 
 if (getApps().length === 0) {
@@ -10,7 +9,6 @@ if (getApps().length === 0) {
 
 export const db = getFirestore();
 export const auth = getAuth();
-export const storage = getStorage();
 export const messaging = getMessaging();
 
 // Firestore settings: ignore undefined properties so partial update objects
